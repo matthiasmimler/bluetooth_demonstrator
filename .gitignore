@@ -1,0 +1,20 @@
+# build directories
+/build-*/
+
+# IDE
+/.vs/
+.idea/
+out/
+/bin/
+
+/Debug/
+/Release/
+
+# QtCreator user specific settings
+/CMakeLists.txt.user
+
+*.filters
+*.user
+
+/bluetooth_demonstrator/Debug/
+/bluetooth_demonstrator/Release/
