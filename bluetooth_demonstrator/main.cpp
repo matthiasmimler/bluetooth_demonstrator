@@ -8,24 +8,11 @@
 #include <BluetoothAPIs.h>
 #include <atlstr.h>
 
-using BT_ADDR = unsigned long long;
-
 struct bt_device_info
 {
-    std::uint16_t get_nap()
-    {
-        return GET_NAP(bt_address);
-    }
+    explicit bt_device_info(const BLUETOOTH_DEVICE_INFO_STRUCT& i) : info(i) {}
 
-    std::uint32_t get_sap()
-    {
-        return GET_SAP(bt_address);
-    }
-
-    std::uint64_t bt_address{ 0 };
-    std::string bt_device_name;
-    std::uint32_t bt_namespace{ 0 };
-    std::uint32_t bt_device_class{ 0 };
+    BLUETOOTH_DEVICE_INFO_STRUCT info;
 };
 
 std::vector<bt_device_info> scan_bt_devices_via_bluetoothapis()
@@ -52,12 +39,7 @@ std::vector<bt_device_info> scan_bt_devices_via_bluetoothapis()
     {
         do
         {
-            auto info = bt_device_info{};
-            info.bt_device_name = CW2A(device_info.szName);
-            info.bt_address = device_info.Address.ullLong;
-            info.bt_device_class = device_info.ulClassofDevice;
-
-            devices.emplace_back(info);
+            devices.emplace_back(device_info);
         } while (BluetoothFindNextDevice(find_handle, &device_info));
     }
 
@@ -74,12 +56,12 @@ int main()
     try
     {
         const auto bt_devices = scan_bt_devices_via_bluetoothapis();
-        std::for_each(bt_devices.cbegin(), bt_devices.cend(), [](const auto& device_info) 
+        std::for_each(bt_devices.cbegin(), bt_devices.cend(), [](const bt_device_info& device) 
         {
             std::cout << "\n" <<
-                "Device name:    " << device_info.bt_device_name << "\n" <<
-                "Device address: " << std::hex << std::showbase << device_info.bt_address << "\n" <<
-                "Device class:   " << std::dec << device_info.bt_device_class << std::endl;
+                "Device name:    " << CW2A(device.info.szName) << "\n" <<
+                "Device address: " << std::hex << std::showbase << device.info.Address.ullLong << "\n" <<
+                "Device class:   " << std::dec << device.info.ulClassofDevice << std::endl;
         });
     }
     catch (std::exception& e)
