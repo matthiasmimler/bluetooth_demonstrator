@@ -20,12 +20,12 @@ std::map<std::size_t, bt_device_info> scan_bt_devices()
     BLUETOOTH_DEVICE_SEARCH_PARAMS search_params =
     {
         sizeof(BLUETOOTH_DEVICE_SEARCH_PARAMS), // dwSize (size)
-        FALSE, // fReturnAuthenticated (return authenticated devices)
-        FALSE, // fReturnRemembered (return remembered devices)
+        TRUE, // fReturnAuthenticated (return authenticated devices)
+        TRUE, // fReturnRemembered (return remembered devices)
         TRUE, // fReturnUnknown (return unknown devices)
         TRUE, // fReturnConnected (return connected devices)
         TRUE, // fIssueInquiry (issue new inquiry)
-        3, // cTimeoutMultiplier (number of increments of 1.28 sec, maximum value is 48)
+        4, // cTimeoutMultiplier (number of increments of 1.28 sec, maximum value is 48)
         NULL // 
     };
 
@@ -52,8 +52,103 @@ std::map<std::size_t, bt_device_info> scan_bt_devices()
     return devices;
 }
 
-void pair(bt_device_info info)
+// Authentication callback
+BOOL WINAPI BluetoothAuthCallback(LPVOID param, PBLUETOOTH_AUTHENTICATION_CALLBACK_PARAMS auth_callback_params)
 {
+    DWORD result = ERROR_SUCCESS;
+
+    fprintf(stderr, "BluetoothAuthCallback 0x%xn", static_cast<unsigned int>(auth_callback_params->deviceInfo.Address.ullLong));
+    BLUETOOTH_AUTHENTICATE_RESPONSE auth_response;
+    auth_response.authMethod = auth_callback_params->authenticationMethod;
+    fprintf(stderr, "Authmethod %dn", auth_response.authMethod);
+    fprintf(stderr, "I/O : %dn", auth_callback_params->ioCapability);
+
+    // With BLUETOOTH_AUTHENTICATION_METHOD_NUMERIC_COMPARISON connection working
+    if (auth_response.authMethod == BLUETOOTH_AUTHENTICATION_METHOD_NUMERIC_COMPARISON)
+    {
+        fprintf(stderr, "Numeric Comparison supportedn");
+
+        auth_response.bthAddressRemote = auth_callback_params->deviceInfo.Address;
+        auth_response.negativeResponse = FALSE;
+
+        // Respond with numerical value for Just Works pairing
+        auth_response.numericCompInfo.NumericValue = 1;
+
+        // Send authentication response to authenticate device
+        result = BluetoothSendAuthenticationResponseEx(NULL, &auth_response);
+    }
+    // With BLUETOOTH_AUTHENTICATION_METHOD_LEGACY connection not working
+    else if (auth_response.authMethod == BLUETOOTH_AUTHENTICATION_METHOD_LEGACY)
+    {
+        auth_response.bthAddressRemote = auth_callback_params->deviceInfo.Address;
+        auth_response.negativeResponse = FALSE;
+
+        //Pin
+        UCHAR pin[] = "0000";
+        std::copy(pin, pin + sizeof(pin), auth_response.pinInfo.pin);
+        auth_response.pinInfo.pinLength = sizeof(pin) - 1;;
+
+        // Respond with numerical value for Just Works pairing
+        //AuthRes.numericCompInfo.NumericValue = 1;
+
+        fprintf(stderr, "Authentication via a PINn");
+        result = BluetoothSendAuthenticationResponseEx(NULL, &auth_response);
+    }
+
+    if (result != ERROR_SUCCESS)
+    {
+        fprintf(stderr, "BluetoothSendAuthenticationResponseEx ret %dn", result);
+    }
+    else
+    {
+        fprintf(stderr, "BluetoothAuthCallback finish");
+    }
+
+    return 1; // This value is ignored
+}
+
+void pair(bt_device_info device_info)
+{
+    auto device = device_info.info;
+
+    std::wstring ws = device.szName;
+    std::cout << "Pairing device " << std::string(ws.begin(), ws.end()) << std::endl;
+
+    // register callback
+    std::cout << "Registering callback" << std::endl;
+    HBLUETOOTH_AUTHENTICATION_REGISTRATION callback_handle = 0;
+    auto result = BluetoothRegisterForAuthenticationEx(NULL, &callback_handle, (PFN_AUTHENTICATION_CALLBACK_EX)&BluetoothAuthCallback, NULL);
+
+    if (result != ERROR_SUCCESS)
+    {
+        return;
+    }
+
+    // authenticate
+    result = BluetoothAuthenticateDeviceEx(NULL, NULL, &device, NULL, MITMProtectionNotRequired);
+
+    switch (result)
+    {
+    case ERROR_SUCCESS:
+        std::cout << "pair device success" << std::endl;
+        break;
+
+    case ERROR_CANCELLED:
+        std::cout << "pair device failed, user cancelled" << std::endl;
+        break;
+
+    case ERROR_INVALID_PARAMETER:
+        std::cout << "pair device failed, invalid parameter" << std::endl;
+        break;
+
+    case ERROR_NO_MORE_ITEMS:
+        std::cout << "pair device failed, device appears paired already" << std::endl;
+        break;
+
+    default:
+        std::cout << "pair device failed, unknown error, code " << (unsigned int)result << std::endl;
+        break;
+    }
 }
 
 int main()
