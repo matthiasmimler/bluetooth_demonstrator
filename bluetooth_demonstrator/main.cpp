@@ -1,7 +1,7 @@
 #include <algorithm>
 #include <iostream>
 #include <string>
-#include <vector>
+#include <map>
 
 #include <winsock2.h>
 #include <ws2bth.h>
@@ -15,7 +15,7 @@ struct bt_device_info
     BLUETOOTH_DEVICE_INFO_STRUCT info;
 };
 
-std::vector<bt_device_info> scan_bt_devices_via_bluetoothapis()
+std::map<std::size_t, bt_device_info> scan_bt_devices()
 {
     BLUETOOTH_DEVICE_SEARCH_PARAMS search_params =
     {
@@ -32,14 +32,15 @@ std::vector<bt_device_info> scan_bt_devices_via_bluetoothapis()
     BLUETOOTH_DEVICE_INFO_STRUCT device_info;
     device_info.dwSize = sizeof(BLUETOOTH_DEVICE_INFO_STRUCT);
 
-    auto devices = std::vector<bt_device_info>{};
+    auto devices = std::map<std::size_t, bt_device_info>{};
     auto find_handle =  BluetoothFindFirstDevice(&search_params, &device_info);
+    int count = 0;
 
     if (find_handle)
     {
         do
         {
-            devices.emplace_back(device_info);
+            devices.emplace(++count, device_info);
         } while (BluetoothFindNextDevice(find_handle, &device_info));
     }
 
@@ -51,18 +52,28 @@ std::vector<bt_device_info> scan_bt_devices_via_bluetoothapis()
     return devices;
 }
 
+void pair(bt_device_info info)
+{
+}
+
 int main()
 {
     try
     {
-        const auto bt_devices = scan_bt_devices_via_bluetoothapis();
-        std::for_each(bt_devices.cbegin(), bt_devices.cend(), [](const bt_device_info& device) 
+        const auto bt_devices = scan_bt_devices();
+        std::for_each(bt_devices.cbegin(), bt_devices.cend(), [](const auto& map_elem) 
         {
-            std::cout << "\n" <<
-                "Device name:    " << CW2A(device.info.szName) << "\n" <<
-                "Device address: " << std::hex << std::showbase << device.info.Address.ullLong << "\n" <<
-                "Device class:   " << std::dec << device.info.ulClassofDevice << std::endl;
+            std::cout << "\n" << "[" << map_elem.first << "]\n" <<
+                "Device name:    " << CW2A(map_elem.second.info.szName) << "\n" <<
+                "Device address: " << std::hex << std::showbase << map_elem.second.info.Address.ullLong << "\n" <<
+                "Device class:   " << std::dec << map_elem.second.info.ulClassofDevice << std::endl;
         });
+
+        std::cout << "\nEnter number of device to pair with: ";
+        std::string number;
+        std::getline(std::cin, number);
+
+        pair(bt_devices.at(std::stoul(number)));
     }
     catch (std::exception& e)
     {
