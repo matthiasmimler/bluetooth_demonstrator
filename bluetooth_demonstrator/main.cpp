@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cassert>
 #include <iostream>
 #include <string>
 #include <map>
@@ -21,7 +22,7 @@ std::map<std::size_t, bt_device_info> scan_bt_devices()
     {
         sizeof(BLUETOOTH_DEVICE_SEARCH_PARAMS), // dwSize (size)
         TRUE, // fReturnAuthenticated (return authenticated devices)
-        TRUE, // fReturnRemembered (return remembered devices)
+        FALSE, // fReturnRemembered (return remembered devices)
         TRUE, // fReturnUnknown (return unknown devices)
         TRUE, // fReturnConnected (return connected devices)
         TRUE, // fIssueInquiry (issue new inquiry)
@@ -112,7 +113,7 @@ void pair(bt_device_info device_info)
     auto device = device_info.info;
 
     std::wstring ws = device.szName;
-    std::cout << "Pairing device " << std::string(ws.begin(), ws.end()) << std::endl;
+    std::cout << "Pairing device " << CW2A(device.szName) << std::endl;
 
     // register callback
     std::cout << "Registering callback" << std::endl;
@@ -121,6 +122,7 @@ void pair(bt_device_info device_info)
 
     if (result != ERROR_SUCCESS)
     {
+        BluetoothUnregisterAuthentication(callback_handle);
         return;
     }
 
@@ -149,6 +151,123 @@ void pair(bt_device_info device_info)
         std::cout << "pair device failed, unknown error, code " << (unsigned int)result << std::endl;
         break;
     }
+
+    BluetoothUnregisterAuthentication(callback_handle);
+
+    HANDLE btHeadset;
+    //todo: 
+    // 1. we are just getting the first radio. Need to check whetehr it is right
+    // 2. We after the BluetoothSetServiceState, it only sets the "Outgoing COM", not "Incoming"
+    BLUETOOTH_FIND_RADIO_PARAMS rfind = { sizeof(rfind) };
+    BluetoothFindFirstRadio(&rfind, &btHeadset);
+
+    GUID id = SerialPortServiceClass_UUID;// { 0x0000111e, 0x0000, 0x1000, { 0x80, 0x00, 0x00, 0x80, 0x5f, 0x9b, 0x34, 0xfb} };
+    DWORD err = BluetoothSetServiceState(&btHeadset, &device, &id, BLUETOOTH_SERVICE_ENABLE);
+    if (err == ERROR_SUCCESS)
+    {
+        std::cout << "Successfully associated with the COM Port" << std::endl;
+    }
+    else
+    {
+        std::cout << "Failed to associate with the COM Port" << std::endl;
+    }
+}
+
+namespace
+{
+    // {B62C4E8D-62CC-404b-BBBF-BF3E3BBB1374}
+    constexpr GUID my_guid = { 0xb62c4e8d, 0x62cc, 0x404b, {0xbb, 0xbf, 0xbf, 0x3e, 0x3b, 0xbb, 0x13, 0x74} };
+
+    constexpr std::size_t CONNECTION_TRANSFER_LEN = 100;
+
+    class bt_socket
+    {
+    public:
+        bt_socket()
+        {
+            assert(m_socket != INVALID_SOCKET);
+        }
+
+        ~bt_socket()
+        {
+            closesocket(m_socket);
+        }
+
+        SOCKET get()
+        {
+            return m_socket;
+        }
+
+    private:
+        SOCKET m_socket = socket(AF_BTH, SOCK_STREAM, BTHPROTO_RFCOMM);
+    };
+}
+
+void connect(bt_device_info device)
+{
+    // data to be transferred
+    char data[CONNECTION_TRANSFER_LEN];
+    strncpy_s(data, "~!@#$%^&*()-_=+?<>1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", CONNECTION_TRANSFER_LEN - 1);
+
+    printf("\n");
+
+    bt_socket local_socket{};
+
+    // Connect the loacl socket (pSocket) to a given remote socket represented by address
+    SOCKADDR_BTH server_socket_address{ AF_BTH, device.info.Address.ullLong, TCP_PROTOCOL_UUID16, 0 };
+    if (connect(local_socket.get(), (struct sockaddr*)&server_socket_address, sizeof(SOCKADDR_BTH)) == SOCKET_ERROR)
+    {
+        throw std::exception{ "connect() call failed." };
+        return;
+    }
+
+//     if (2 <= g_iOutputLevel)
+//     {
+//         printf("*INFO* | connect() call succeeded\n");
+//     }
+// 
+//     //
+//     // send() call indicates winsock2 to send the given data 
+//     // of a specified length over a given connection. 
+//     //
+//     printf("*INFO* | Sending following data string:\n%s\n", szData);
+//     if (SOCKET_ERROR == send(LocalSocket, szData, CXN_TRANSFER_DATA_LENGTH, 0))
+//     {
+//         printf("=CRITICAL= | send() call failed w/socket = [0x%X], szData = [%p], dataLen = [%d]. WSAGetLastError=[%d]\n", LocalSocket, szData, CXN_TRANSFER_DATA_LENGTH, WSAGetLastError());
+//         ulRetCode = 1;
+//         goto CleanupAndExit;
+//     }
+// 
+//     if (2 <= g_iOutputLevel)
+//     {
+//         printf("*INFO* | send() call succeeded\n");
+//     }
+// 
+//     //
+//     // Close the socket
+//     //
+//     if (SOCKET_ERROR == closesocket(LocalSocket))
+//     {
+//         printf("=CRITICAL= | closesocket() call failed w/socket = [0x%X]. WSAGetLastError=[%d]\n", LocalSocket, WSAGetLastError());
+//         ulRetCode = 1;
+//         goto CleanupAndExit;
+//     }
+// 
+//     LocalSocket = INVALID_SOCKET;
+// 
+//     if (2 <= g_iOutputLevel)
+//     {
+//         printf("*INFO* | closesocket() call succeeded");
+//     }
+// 
+// CleanupAndExit:
+//     if (INVALID_SOCKET != LocalSocket)
+//     {
+//         closesocket(LocalSocket);
+//         LocalSocket = INVALID_SOCKET;
+//     }
+// 
+//     return ulRetCode;
 }
 
 int main()
@@ -168,7 +287,8 @@ int main()
         std::string number;
         std::getline(std::cin, number);
 
-        pair(bt_devices.at(std::stoul(number)));
+//         pair(bt_devices.at(std::stoul(number)));
+        connect(bt_devices.at(std::stoul(number)));
     }
     catch (std::exception& e)
     {
